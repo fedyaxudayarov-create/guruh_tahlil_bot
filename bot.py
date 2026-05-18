@@ -17,323 +17,297 @@ from openpyxl.utils import get_column_letter
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OWNER_ID  = int(os.getenv("OWNER_ID", "0"))
 
-# ─── MA'LUMOTLAR SAQLASH ──────────────────────────────────────────────────────
+# ─── MA'LUMOTLAR ─────────────────────────────────────────────────────────────
+# { guruh_id: [log_dict, ...] }
 logs: dict[int, list[dict]] = defaultdict(list)
 
-# ─── TAHLIL FUNKSIYALARI ─────────────────────────────────────────────────────
+# ─── TAHLIL ──────────────────────────────────────────────────────────────────
 
-def skript_aniqlash(matn: str) -> str:
-    if not matn:
-        return "-"
-    kirill = len(re.findall(r"[а-яёА-ЯЁ]", matn))
-    lotin  = len(re.findall(r"[a-zA-ZʻʼGgQqHh]", matn))
-    if kirill > 0 and lotin > 0:
-        return "Aralash"
-    if kirill > lotin:
-        return "Kirill"
-    if lotin > kirill:
-        return "Lotin"
+def skript(t: str) -> str:
+    if not t: return "-"
+    k = len(re.findall(r"[а-яёА-ЯЁ]", t))
+    l = len(re.findall(r"[a-zA-ZʻʼGgQqHh]", t))
+    if k > 0 and l > 0: return "Aralash"
+    if k > l: return "Kirill"
+    if l > k: return "Lotin"
     return "-"
 
 SALOM_KW = [
-    "ассалому алайкум", "ас-саламу алайкум", "ас саламу алайкум",
-    "ваалайкум", "ва алайкум", "салом", "яхшимисиз", "хайр",
-    "assalomu alaykum", "as-salamu alaykum", "assalom",
-    "va alaykum", "vaalaykum", "salom", "yaxshimisiz", "xayr",
-    "добрый", "привет", "здравствуй",
+    "ассалому алайкум","ас-саламу","салом","яхшимисиз","хайр",
+    "assalomu alaykum","as-salamu","assalom","salom","yaxshimisiz","xayr",
+    "добрый","привет","здравствуй",
 ]
-
-def salom_aniqlash(matn: str) -> str:
-    t = matn.lower()
-    for kw in SALOM_KW:
-        if kw in t:
-            return "Ha"
-    return "Yo'q"
-
 TUSHUNDI_KW = [
-    "тушунарли", "tushunarli", "тушундим", "tushundim",
-    "бажардим", "bajardim", "бажарилди", "bajarildi",
-    "хоп", "hop", "яхши", "yaxshi", "майли", "mayli",
-    "ок", "ok", "👍", "✅", "тайёр", "tayyor", "готово", "готов",
-    "тугади", "tugadi", "қабул", "qabul",
+    "тушунарли","tushunarli","тушундим","tushundim",
+    "бажардим","bajardim","бажарилди","bajarildi",
+    "хоп","hop","майли","mayli","ок","ok","👍","✅",
+    "тайёр","tayyor","готово","готов","тугади","tugadi","қабул","qabul",
 ]
 XATO_KW = [
-    "хато", "xato", "нотўғри", "noto'g'ri", "тушунмадим", "tushunmadim",
-    "билмадим", "bilmadim", "узр", "uzr", "кечирасиз", "kechirasiz",
-    "❌", "йўқ", "yo'q", "нотугри",
+    "хато","xato","нотўғри","noto'g'ri","тушунмадим","tushunmadim",
+    "билмадим","bilmadim","узр","uzr","кечирасиз","kechirasiz","❌",
 ]
 SAVOL_KW = [
-    "?", "савол", "savol", "нима", "nima", "қандай", "qanday",
-    "қачон", "qachon", "нега", "nega", "ким", "kim",
-    "тушунтир", "tushuntir", "қаерда", "qayerda",
+    "?","савол","savol","нима","nima","қандай","qanday",
+    "қачон","qachon","нега","nega","тушунтир","tushuntir",
 ]
 
-def holat_aniqlash(matn: str) -> str:
-    t = matn.lower()
-    for kw in TUSHUNDI_KW:
-        if kw in t:
-            return "Tushundi/Bajardi"
-    for kw in XATO_KW:
-        if kw in t:
-            return "Xato/Tushunmadi"
-    for kw in SAVOL_KW:
-        if kw in t:
-            return "Savol berdi"
+def salom(t: str) -> bool:
+    tl = t.lower()
+    return any(k in tl for k in SALOM_KW)
+
+def holat(t: str) -> str:
+    tl = t.lower()
+    if any(k in tl for k in TUSHUNDI_KW): return "Tushundi/Bajardi"
+    if any(k in tl for k in XATO_KW):    return "Xato/Tushunmadi"
+    if any(k in tl for k in SAVOL_KW):   return "Savol berdi"
     return "Oddiy izoh"
 
-def xabar_tahlil(message) -> dict:
+def tahlil(message) -> dict:
     user    = message.from_user
     chat    = message.chat
     caption = (message.caption or "").strip()
+    now     = datetime.now()
 
     log = {
-        "vaqt"        : datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "sana"        : datetime.now().strftime("%Y-%m-%d"),
-        "soat"        : datetime.now().strftime("%H:%M"),
-        "guruh"       : chat.title or "Unknown",
-        "guruh_id"    : chat.id,
-        "ism"         : (f"{user.first_name or ''} {user.last_name or ''}".strip()
-                         if user else "Unknown"),
-        "username"    : (f"@{user.username}" if user and user.username
-                         else str(user.id) if user else "-"),
-        "user_id"     : user.id if user else 0,
-        "rasm"        : "",
-        "video"       : "",
-        "dumaloq"     : "",
-        "ovoz"        : "",
-        "matn_tur"    : "",
-        "boshqa"      : "",
-        "izoh"        : "",
-        "salomlashish": "",
-        "holat"       : "",
-        "yozuv"       : "",
+        "ts"      : now,
+        "sana"    : now.strftime("%Y-%m-%d"),
+        "soat"    : now.strftime("%H:%M"),
+        "guruh"   : chat.title or "Unknown",
+        "guruh_id": chat.id,
+        "ism"     : (f"{user.first_name or ''} {user.last_name or ''}".strip()
+                     if user else "Unknown"),
+        "username": (f"@{user.username}" if user and user.username
+                     else str(user.id) if user else "-"),
+        "user_id" : user.id if user else 0,
+        "tur"     : "",
+        "izoh"    : "",
     }
 
-    if message.photo:
-        log["rasm"]  = "Ha"
-        log["izoh"]  = caption
-    elif message.video:
-        log["video"] = "Ha"
-        log["izoh"]  = caption
-    elif message.video_note:
-        log["dumaloq"] = "Ha"
-    elif message.voice:
-        log["ovoz"]  = "Ha"
-        log["izoh"]  = caption
-    elif message.audio:
-        log["boshqa"] = "Audio"
-        log["izoh"]   = caption
-    elif message.document:
-        log["boshqa"] = "Fayl"
-        log["izoh"]   = caption
-    elif message.sticker:
-        log["boshqa"] = "Stiker"
-    elif message.text:
-        log["matn_tur"] = "Ha"
-        log["izoh"]     = message.text.strip()
-    else:
-        log["boshqa"] = "Boshqa"
-
-    t = log["izoh"]
-    if t:
-        log["salomlashish"] = salom_aniqlash(t)
-        log["holat"]        = holat_aniqlash(t)
-        log["yozuv"]        = skript_aniqlash(t)
+    if   message.photo:      log["tur"] = "rasm";    log["izoh"] = caption
+    elif message.video:      log["tur"] = "video";   log["izoh"] = caption
+    elif message.video_note: log["tur"] = "dumaloq"
+    elif message.voice:      log["tur"] = "ovoz";    log["izoh"] = caption
+    elif message.audio:      log["tur"] = "audio";   log["izoh"] = caption
+    elif message.document:   log["tur"] = "fayl";    log["izoh"] = caption
+    elif message.sticker:    log["tur"] = "stiker"
+    elif message.text:       log["tur"] = "matn";    log["izoh"] = message.text.strip()
+    else:                    log["tur"] = "boshqa"
 
     return log
 
-
-# ─── HANDLER: FAQAT YIG'ADI ──────────────────────────────────────────────────
+# ─── HANDLER ─────────────────────────────────────────────────────────────────
 
 async def guruh_xabar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     msg = update.message or update.channel_post
-    if not msg:
-        return
-    log = xabar_tahlil(msg)
+    if not msg: return
+    log = tahlil(msg)
     logs[log["guruh_id"]].append(log)
-    # Hech narsa yuborilmaydi
-
 
 # ─── EXCEL ───────────────────────────────────────────────────────────────────
 
-SARLAVHALAR = [
-    "№", "Sana", "Soat", "Guruh", "Ism", "Username",
-    "📷 Rasm", "🎥 Video", "⭕ Dumaloq", "🎤 Ovoz", "💬 Matn", "📦 Boshqa",
-    "Izoh / Caption",
-    "👋 Salomlashish", "📋 Holat", "📝 Yozuv",
+SARLAVHA = [
+    "№", "Ism", "Username", "Guruh",
+    "Birinchi\nxabar", "Oxirgi\nxabar",
+    "📷\nRasm", "🎥\nVideo", "⭕\nDumaloq",
+    "🎤\nOvoz", "💬\nMatn", "📄\nFayl", "📦\nBoshqa",
+    "Jami\nxabarlar",
+    "👋\nSalomlashish",
+    "✅\nTushundi", "❌\nXato", "❓\nSavol",
+    "📝\nYozuv",
+    "Izohlar (caption / matn)",
 ]
-KENGLIKLARI = [5, 12, 8, 22, 22, 16,
-               8, 8, 10, 8, 8, 10,
-               45,
-               16, 22, 10]
+KENG = [4, 22, 16, 20, 14, 14,
+        6, 6, 8, 6, 6, 6, 7,
+        8,
+        14,
+        9, 7, 7,
+        10,
+        55]
 
-RANG = {
-    "sarlavha_fon" : "1F4E79",
-    "sarlavha_matn": "FFFFFF",
-    "juft"         : "D6E4F0",
-    "toq"          : "FFFFFF",
-    "tushundi"     : "C6EFCE",
-    "xato"         : "FFC7CE",
-    "savol"        : "FFEB9C",
-    "salom_ha"     : "E2EFDA",
-    "media_ha"     : "BDD7EE",
+C = {
+    "sh_fon" : "1F4E79", "sh_matn": "FFFFFF",
+    "juft"   : "EBF3FB", "toq"    : "FFFFFF",
+    "green"  : "C6EFCE", "red"    : "FFC7CE",
+    "yellow" : "FFEB9C", "blue"   : "BDD7EE",
+    "salom"  : "E2EFDA", "header2": "2E4057",
+    "hd2_matn":"FFFFFF",
 }
 
+def pf(hex_): return PatternFill("solid", fgColor=hex_)
+chegara = Border(
+    left=Side(style="thin"), right=Side(style="thin"),
+    top=Side(style="thin"),  bottom=Side(style="thin")
+)
 
-def excel_sheet_yasash(wb, guruh_nomi: str, glog: list):
+def sh(ws, row, col, val="", fon=None, bold=False, size=10,
+       matn_rangi="000000", wrap=True, gorizontal="center"):
+    c = ws.cell(row=row, column=col, value=val)
+    if fon:  c.fill = pf(fon)
+    c.font  = Font(bold=bold, size=size, color=matn_rangi)
+    c.alignment = Alignment(
+        horizontal=gorizontal, vertical="center", wrap_text=wrap)
+    c.border = chegara
+    return c
+
+def excel_sheet(wb, guruh_nomi: str, glog: list):
     ws = wb.create_sheet(title=guruh_nomi[:28])
 
-    chegara        = Border(left=Side(style="thin"), right=Side(style="thin"),
-                            top=Side(style="thin"),  bottom=Side(style="thin"))
-    sarlavha_shrift = Font(color=RANG["sarlavha_matn"], bold=True, size=10)
-    sarlavha_fon    = PatternFill("solid", fgColor=RANG["sarlavha_fon"])
-    markaz          = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    # ── 1-qator sarlavha ─────────────────────────────────────
+    for col, s in enumerate(SARLAVHA, 1):
+        sh(ws, 1, col, s, fon=C["sh_fon"], bold=True, matn_rangi=C["sh_matn"])
+    ws.row_dimensions[1].height = 32
 
-    # 1-qator sarlavhalar
-    for col, s in enumerate(SARLAVHALAR, 1):
-        c = ws.cell(row=1, column=col, value=s)
-        c.fill = sarlavha_fon
-        c.font = sarlavha_shrift
-        c.alignment = markaz
-        c.border = chegara
-    ws.row_dimensions[1].height = 28
-
-    # Ma'lumot qatorlari
-    for i, l in enumerate(glog, 1):
-        row = i + 1
-        fon = RANG["juft"] if i % 2 == 0 else RANG["toq"]
-        qiymatlar = [
-            i, l["sana"], l["soat"], l["guruh"], l["ism"], l["username"],
-            l["rasm"], l["video"], l["dumaloq"], l["ovoz"], l["matn_tur"], l["boshqa"],
-            l["izoh"],
-            l["salomlashish"], l["holat"], l["yozuv"],
-        ]
-        for col, q in enumerate(qiymatlar, 1):
-            c = ws.cell(row=row, column=col, value=q)
-            c.fill = PatternFill("solid", fgColor=fon)
-            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-            c.border = chegara
-
-        # Izoh chap hizalama
-        ws.cell(row=row, column=13).alignment = Alignment(
-            horizontal="left", vertical="center", wrap_text=True)
-
-        # Rang bilan belgilash
-        holat = l["holat"]
-        if "Tushundi" in holat:
-            ws.cell(row=row, column=15).fill = PatternFill("solid", fgColor=RANG["tushundi"])
-        elif "Xato" in holat:
-            ws.cell(row=row, column=15).fill = PatternFill("solid", fgColor=RANG["xato"])
-        elif "Savol" in holat:
-            ws.cell(row=row, column=15).fill = PatternFill("solid", fgColor=RANG["savol"])
-
-        if l["salomlashish"] == "Ha":
-            ws.cell(row=row, column=14).fill = PatternFill("solid", fgColor=RANG["salom_ha"])
-
-        for mc in [7, 8, 9, 10, 11]:
-            if ws.cell(row=row, column=mc).value == "Ha":
-                ws.cell(row=row, column=mc).fill = PatternFill("solid", fgColor=RANG["media_ha"])
-
-    # Ustun kengliklari
-    for col, k in enumerate(KENGLIKLARI, 1):
-        ws.column_dimensions[get_column_letter(col)].width = k
-    ws.freeze_panes = "A2"
-
-    # ── ISHTIROKCHI KESIMIDA XULOSA ──────────────────────────
-    boshlash = len(glog) + 3
-
-    # Xulosa sarlavhasi
-    c = ws.cell(row=boshlash, column=1, value="📊 ISHTIROKCHI KESIMIDA XULOSA")
-    c.font = Font(bold=True, size=11, color="FFFFFF")
-    c.fill = PatternFill("solid", fgColor="2E4057")
-    ws.merge_cells(start_row=boshlash, start_column=1,
-                   end_row=boshlash, end_column=len(SARLAVHALAR))
-    ws.cell(row=boshlash, column=1).alignment = Alignment(horizontal="center")
-
-    xulosa_s = [
-        "Ism", "Username", "Jami",
-        "📷 Rasm", "🎥 Video", "⭕ Dumaloq", "🎤 Ovoz", "💬 Matn",
-        "👋 Salomlashdi", "✅ Tushundi", "❌ Xato", "❓ Savol", "📝 Asosiy yozuv",
-    ]
-    for col, s in enumerate(xulosa_s, 1):
-        c = ws.cell(row=boshlash + 1, column=col, value=s)
-        c.font = Font(bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", fgColor="4472C4")
-        c.alignment = Alignment(horizontal="center")
-        c.border = chegara
-
-    # Ishtirokchilar yig'ish
-    ishtirokchilar: dict = {}
-    for l in glog:
+    # ── Ishtirokchilarni yig'ish ──────────────────────────────
+    # uid -> dict
+    a: dict[int, dict] = {}
+    for l in sorted(glog, key=lambda x: x["ts"]):
         uid = l["user_id"]
-        if uid not in ishtirokchilar:
-            ishtirokchilar[uid] = {
-                "ism": l["ism"], "username": l["username"],
-                "jami": 0, "rasm": 0, "video": 0, "dumaloq": 0, "ovoz": 0, "matn": 0,
-                "salom": 0, "tushundi": 0, "xato": 0, "savol": 0,
-                "lotin": 0, "kirill": 0, "aralash": 0,
+        if uid not in a:
+            a[uid] = {
+                "ism": l["ism"], "username": l["username"], "guruh": l["guruh"],
+                "birinchi": l["sana"] + " " + l["soat"],
+                "oxirgi"  : l["sana"] + " " + l["soat"],
+                "rasm":0,"video":0,"dumaloq":0,"ovoz":0,
+                "matn":0,"fayl":0,"boshqa":0,
+                "salom":0,"tushundi":0,"xato":0,"savol":0,
+                "lotin":0,"kirill":0,"aralash":0,
+                "izohlar": [],   # barcha caption/matn
             }
-        d = ishtirokchilar[uid]
-        d["jami"] += 1
-        if l["rasm"]    == "Ha": d["rasm"]    += 1
-        if l["video"]   == "Ha": d["video"]   += 1
-        if l["dumaloq"] == "Ha": d["dumaloq"] += 1
-        if l["ovoz"]    == "Ha": d["ovoz"]    += 1
-        if l["matn_tur"]== "Ha": d["matn"]    += 1
-        if l["salomlashish"] == "Ha":        d["salom"]    += 1
-        if "Tushundi" in l["holat"]:         d["tushundi"] += 1
-        elif "Xato"   in l["holat"]:         d["xato"]     += 1
-        elif "Savol"  in l["holat"]:         d["savol"]    += 1
-        if   "Lotin"   in l["yozuv"]:        d["lotin"]    += 1
-        elif "Kirill"  in l["yozuv"]:        d["kirill"]   += 1
-        elif "Aralash" in l["yozuv"]:        d["aralash"]  += 1
+        d = a[uid]
+        d["oxirgi"] = l["sana"] + " " + l["soat"]
 
-    for j, (uid, d) in enumerate(
-        sorted(ishtirokchilar.items(), key=lambda x: -x[1]["jami"])
+        t = l["tur"]
+        if   t == "rasm":    d["rasm"]    += 1
+        elif t == "video":   d["video"]   += 1
+        elif t == "dumaloq": d["dumaloq"] += 1
+        elif t == "ovoz":    d["ovoz"]    += 1
+        elif t == "matn":    d["matn"]    += 1
+        elif t in ("fayl","audio"): d["fayl"] += 1
+        else:                d["boshqa"]  += 1
+
+        izoh = l["izoh"].strip()
+        if izoh:
+            # salomlashish tahlili
+            if salom(izoh):       d["salom"]    += 1
+            h = holat(izoh)
+            if   "Tushundi" in h: d["tushundi"] += 1
+            elif "Xato"     in h: d["xato"]     += 1
+            elif "Savol"    in h: d["savol"]     += 1
+            s_ = skript(izoh)
+            if   "Lotin"   in s_: d["lotin"]    += 1
+            elif "Kirill"  in s_: d["kirill"]   += 1
+            elif "Aralash" in s_: d["aralash"]  += 1
+            # Izohni qisqartirib saqlash
+            qisqa = (izoh[:120] + "…") if len(izoh) > 120 else izoh
+            d["izohlar"].append(qisqa)
+
+    # ── Ma'lumot qatorlari ────────────────────────────────────
+    for i, (uid, d) in enumerate(
+        sorted(a.items(), key=lambda x: -( 
+            x[1]["rasm"]+x[1]["video"]+x[1]["dumaloq"]+
+            x[1]["ovoz"]+x[1]["matn"]+x[1]["fayl"]+x[1]["boshqa"]
+        )), 1
     ):
-        row = boshlash + 2 + j
-        asosiy = max(
-            [("Lotin", d["lotin"]), ("Kirill", d["kirill"]), ("Aralash", d["aralash"])],
+        row  = i + 1
+        fon  = C["juft"] if i % 2 == 0 else C["toq"]
+        jami = d["rasm"]+d["video"]+d["dumaloq"]+d["ovoz"]+d["matn"]+d["fayl"]+d["boshqa"]
+
+        asosiy_yozuv = max(
+            [("Lotin",d["lotin"]),("Kirill",d["kirill"]),("Aralash",d["aralash"])],
             key=lambda x: x[1]
         )[0] if (d["lotin"] or d["kirill"] or d["aralash"]) else "-"
 
+        # Izohlarni birlashtirish (max 5 ta, qolganlarini "…va X ta yana")
+        izoh_list = d["izohlar"]
+        if len(izoh_list) <= 5:
+            izoh_cell = "\n\n".join(f"• {x}" for x in izoh_list)
+        else:
+            izoh_cell = "\n\n".join(f"• {x}" for x in izoh_list[:5])
+            izoh_cell += f"\n\n…va yana {len(izoh_list)-5} ta izoh"
+
         qiymatlar = [
-            d["ism"], d["username"], d["jami"],
-            d["rasm"], d["video"], d["dumaloq"], d["ovoz"], d["matn"],
-            d["salom"], d["tushundi"], d["xato"], d["savol"], asosiy,
+            i, d["ism"], d["username"], d["guruh"],
+            d["birinchi"], d["oxirgi"],
+            d["rasm"] or "", d["video"] or "", d["dumaloq"] or "",
+            d["ovoz"] or "", d["matn"] or "", d["fayl"] or "", d["boshqa"] or "",
+            jami,
+            d["salom"] or "",
+            d["tushundi"] or "", d["xato"] or "", d["savol"] or "",
+            asosiy_yozuv,
+            izoh_cell,
         ]
-        fon = "EBF3FB" if j % 2 == 0 else "FFFFFF"
+
         for col, q in enumerate(qiymatlar, 1):
-            c = ws.cell(row=row, column=col, value=q)
-            c.fill = PatternFill("solid", fgColor=fon)
-            c.alignment = Alignment(horizontal="center", vertical="center")
-            c.border = chegara
-        ws.cell(row=row, column=1).alignment = Alignment(horizontal="left")
+            c = sh(ws, row, col, q, fon=fon)
+            # Izoh ustuni — chap hizalama
+            if col == 20:
+                c.alignment = Alignment(
+                    horizontal="left", vertical="top", wrap_text=True)
 
+        # Maxsus ranglar
         if d["salom"] > 0:
-            ws.cell(row=row, column=9).fill  = PatternFill("solid", fgColor=RANG["salom_ha"])
+            ws.cell(row=row, column=15).fill = pf(C["salom"])
         if d["tushundi"] > 0:
-            ws.cell(row=row, column=10).fill = PatternFill("solid", fgColor=RANG["tushundi"])
+            ws.cell(row=row, column=16).fill = pf(C["green"])
         if d["xato"] > 0:
-            ws.cell(row=row, column=11).fill = PatternFill("solid", fgColor=RANG["xato"])
+            ws.cell(row=row, column=17).fill = pf(C["red"])
+        if d["savol"] > 0:
+            ws.cell(row=row, column=18).fill = pf(C["yellow"])
+        for mc in [7, 8, 9, 10, 11, 12]:
+            val = ws.cell(row=row, column=mc).value
+            if val and val != "":
+                ws.cell(row=row, column=mc).fill = pf(C["blue"])
 
-    oxir = boshlash + 2 + len(ishtirokchilar)
-    ws.cell(row=oxir + 1, column=1,
+        ws.row_dimensions[row].height = max(
+            40, min(15 * max(1, len(izoh_list)), 200)
+        )
+
+    # ── Ustun kengliklari & freeze ────────────────────────────
+    for col, k in enumerate(KENG, 1):
+        ws.column_dimensions[get_column_letter(col)].width = k
+    ws.freeze_panes = "A2"
+
+    # ── Qo'shimcha: jami statistika qatori ───────────────────
+    jami_row = len(a) + 3
+    c = ws.cell(row=jami_row, column=1, value="📊 JAMI (barcha ishtirokchilar)")
+    c.font = Font(bold=True, size=10, color=C["hd2_matn"])
+    c.fill = pf(C["header2"])
+    ws.merge_cells(start_row=jami_row, start_column=1,
+                   end_row=jami_row, end_column=len(SARLAVHA))
+    ws.cell(row=jami_row, column=1).alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[jami_row].height = 22
+
+    jami_row2 = jami_row + 1
+    jami_labels = [
+        ("Ishtirokchilar", len(a)),
+        ("Jami xabarlar", sum(len([l for l in glog if l["user_id"]==uid]) for uid in a)),
+        ("Rasm",    sum(d["rasm"]    for d in a.values())),
+        ("Video",   sum(d["video"]   for d in a.values())),
+        ("Dumaloq", sum(d["dumaloq"] for d in a.values())),
+        ("Ovoz",    sum(d["ovoz"]    for d in a.values())),
+        ("Matn",    sum(d["matn"]    for d in a.values())),
+        ("Salomlashdi", sum(1 for d in a.values() if d["salom"] > 0)),
+        ("Tushundi", sum(1 for d in a.values() if d["tushundi"] > 0)),
+        ("Xato",    sum(1 for d in a.values() if d["xato"] > 0)),
+    ]
+    for col, (label, val) in enumerate(jami_labels, 1):
+        sh(ws, jami_row2,   col, label, fon="4472C4", bold=True, matn_rangi="FFFFFF", size=9)
+        sh(ws, jami_row2+1, col, val,   fon="EBF3FB", bold=True, size=10)
+
+    ws.cell(row=jami_row2+3, column=1,
             value=f"Hisobot: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-            ).font = Font(italic=True, color="808080")
+            ).font = Font(italic=True, color="808080", size=9)
 
 
 async def report(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
+    if update.effective_user.id != OWNER_ID: return
 
     matn = update.message.text or ""
     target_gid = None
     if "_" in matn:
-        try:
-            target_gid = int(matn.split("_", 1)[1].strip())
-        except ValueError:
-            pass
+        try: target_gid = int(matn.split("_", 1)[1].strip())
+        except ValueError: pass
 
     tahlil_logs = {target_gid: logs.get(target_gid, [])} if target_gid else dict(logs)
 
@@ -348,36 +322,31 @@ async def report(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     for gid, glog in tahlil_logs.items():
         if glog:
-            excel_sheet_yasash(wb, glog[-1]["guruh"], glog)
+            excel_sheet(wb, glog[-1]["guruh"], glog)
 
-    fayl_nomi = f"/tmp/tahlil_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    wb.save(fayl_nomi)
+    fayl = f"/tmp/tahlil_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    wb.save(fayl)
 
     jami = sum(len(v) for v in tahlil_logs.values())
-    guruh_soni = sum(1 for v in tahlil_logs.values() if v)
+    n_guruh = sum(1 for v in tahlil_logs.values() if v)
 
-    with open(fayl_nomi, "rb") as f:
+    with open(fayl, "rb") as f:
         await ctx.bot.send_document(
             chat_id=OWNER_ID,
             document=f,
-            filename=f"guruh_tahlil_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
-            caption=(
-                f"📊 *Excel hisobot tayyor!*\n"
-                f"👥 Guruhlar: {guruh_soni}\n"
-                f"📨 Jami xabarlar: {jami}"
-            ),
+            filename=f"tahlil_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            caption=(f"📊 *Excel hisobot tayyor!*\n"
+                     f"👥 Guruhlar: {n_guruh} | 📨 Xabarlar: {jami}"),
             parse_mode="Markdown",
         )
-    os.remove(fayl_nomi)
+    os.remove(fayl)
 
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
+    if update.effective_user.id != OWNER_ID: return
     await update.message.reply_text(
         "🤖 *Guruh Tahlil Boti*\n\n"
-        "Bot guruhda *indamay* yig'adi.\n\n"
-        "📋 *Buyruqlar:*\n"
+        "Bot indamay yig'adi — hech narsa yuborilmaydi.\n\n"
         "/report — Excel hisobot\n"
         "/stats — Qisqa statistika\n"
         "/guruhlar — Guruhlar ro'yxati\n"
@@ -386,48 +355,41 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 async def guruhlar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
+    if update.effective_user.id != OWNER_ID: return
     if not logs:
         await update.message.reply_text("📭 Hech qanday guruh yo'q.")
         return
-    javob = "👥 *Kuzatilayotgan guruhlar:*\n\n"
+    javob = "👥 *Guruhlar:*\n\n"
     for gid, glog in logs.items():
         nom = glog[-1]["guruh"] if glog else "Unknown"
-        javob += f"• *{nom}*\n  ID: `{gid}` | Xabarlar: {len(glog)}\n\n"
+        uids = len(set(l["user_id"] for l in glog))
+        javob += f"• *{nom}*\n  ID: `{gid}` | Xabarlar: {len(glog)} | Ishtirokchi: {uids}\n\n"
     await update.message.reply_text(javob, parse_mode="Markdown")
 
 async def stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
+    if update.effective_user.id != OWNER_ID: return
     if not logs:
         await update.message.reply_text("📭 Ma'lumot yo'q.")
         return
     javob = "📊 *Statistika*\n\n"
     for gid, glog in logs.items():
-        if not glog:
-            continue
-        nom     = glog[-1]["guruh"]
-        rasm    = sum(1 for l in glog if l["rasm"]    == "Ha")
-        video   = sum(1 for l in glog if l["video"]   == "Ha")
-        dumaloq = sum(1 for l in glog if l["dumaloq"] == "Ha")
-        salom   = sum(1 for l in glog if l["salomlashish"] == "Ha")
-        tush    = sum(1 for l in glog if "Tushundi" in l["holat"])
-        xato    = sum(1 for l in glog if "Xato"     in l["holat"])
-        ishtirokchi = len(set(l["user_id"] for l in glog))
+        if not glog: continue
+        nom  = glog[-1]["guruh"]
+        uids = len(set(l["user_id"] for l in glog))
         javob += (
             f"🏷 *{nom}*\n"
-            f"  👤 Ishtirokchilar: {ishtirokchi}\n"
+            f"  👤 Ishtirokchilar: {uids}\n"
             f"  📨 Jami xabarlar: {len(glog)}\n"
-            f"  📷 Rasm: {rasm}  🎥 Video: {video}  ⭕ Dumaloq: {dumaloq}\n"
-            f"  👋 Salomlashdi: {salom}\n"
-            f"  ✅ Tushundi: {tush}  ❌ Xato: {xato}\n\n"
+            f"  📷 Rasm: {sum(1 for l in glog if l['tur']=='rasm')}"
+            f"  🎥 Video: {sum(1 for l in glog if l['tur']=='video')}"
+            f"  ⭕ Dumaloq: {sum(1 for l in glog if l['tur']=='dumaloq')}\n"
+            f"  🎤 Ovoz: {sum(1 for l in glog if l['tur']=='ovoz')}"
+            f"  💬 Matn: {sum(1 for l in glog if l['tur']=='matn')}\n\n"
         )
     await update.message.reply_text(javob, parse_mode="Markdown")
 
 async def clear(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
+    if update.effective_user.id != OWNER_ID: return
     logs.clear()
     await update.message.reply_text("🗑 Barcha ma'lumotlar tozalandi.")
 
@@ -437,10 +399,8 @@ def main():
         format="%(asctime)s | %(levelname)s | %(message)s",
         level=logging.INFO,
     )
-    if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN o'rnatilmagan!")
-    if not OWNER_ID:
-        raise ValueError("OWNER_ID o'rnatilmagan!")
+    if not BOT_TOKEN: raise ValueError("BOT_TOKEN o'rnatilmagan!")
+    if not OWNER_ID:  raise ValueError("OWNER_ID o'rnatilmagan!")
 
     app = Application.builder().token(BOT_TOKEN).build()
 
@@ -450,17 +410,14 @@ def main():
     app.add_handler(CommandHandler("report",   report))
     app.add_handler(CommandHandler("clear",    clear))
 
-    guruh_filtri = filters.ChatType.GROUPS & (
-        filters.TEXT
-        | filters.PHOTO
-        | filters.VIDEO
-        | filters.VIDEO_NOTE
-        | filters.VOICE
-        | filters.AUDIO
-        | filters.Document.ALL
-        | filters.Sticker.ALL
-    )
-    app.add_handler(MessageHandler(guruh_filtri, guruh_xabar))
+    app.add_handler(MessageHandler(
+        filters.ChatType.GROUPS & (
+            filters.TEXT | filters.PHOTO | filters.VIDEO |
+            filters.VIDEO_NOTE | filters.VOICE | filters.AUDIO |
+            filters.Document.ALL | filters.Sticker.ALL
+        ),
+        guruh_xabar
+    ))
 
     logging.info("🤖 Bot ishga tushdi — silent mode")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
