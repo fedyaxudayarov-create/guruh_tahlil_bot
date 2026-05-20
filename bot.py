@@ -2,8 +2,9 @@ import os
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
+TZ = timezone(timedelta(hours=5))
 from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -106,7 +107,7 @@ def tahlil_msg(message) -> dict:
     user    = message.from_user
     chat    = message.chat
     caption = (message.caption or "").strip()
-    now     = datetime.now()
+    now = datetime.now(TZ)
 
     entry = {
         "ts"      : now.isoformat(),
