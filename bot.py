@@ -19,6 +19,16 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 OWNER_ID  = int(os.getenv("OWNER_ID", "0"))
 TZ        = timezone(timedelta(hours=5))          # Toshkent UTC+5
 
+# Qo'shimcha adminlar — Railway Variables da:
+# ADMIN_IDS=5975290125,696214082,1467612076
+_extra = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS: set[int] = {OWNER_ID} | {
+    int(x.strip()) for x in _extra.split(",") if x.strip().isdigit()
+}
+
+def is_admin(user_id: int) -> bool:
+    return user_id in ADMIN_IDS
+
 DATA_DIR  = Path(os.getenv("DATA_DIR", "/data"))
 DATA_FILE = DATA_DIR / "logs.json"
 MBRS_FILE = DATA_DIR / "members.json"
@@ -511,7 +521,7 @@ async def yangi_azolar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     save_all()
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
+    if not is_admin(update.effective_user.id): return
     await update.message.reply_text(
         "🤖 *Guruh Tahlil Boti v4*\n\n"
         "📋 *Buyruqlar:*\n"
@@ -524,7 +534,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 async def report_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
+    if not is_admin(update.effective_user.id): return
     kb = kb_guruhlar()
     if kb is None:
         await update.message.reply_text("📭 Hozircha ma'lumot yo'q.")
@@ -535,7 +545,7 @@ async def report_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     )
 
 async def stats_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
+    if not is_admin(update.effective_user.id): return
     if not any(logs.values()):
         await update.message.reply_text("📭 Ma'lumot yo'q."); return
     aktiv = [g for g in logs if logs[g]]
@@ -578,7 +588,7 @@ async def _show_stats(msg_or_query, gid: str):
         await msg_or_query.edit_message_text(text, parse_mode="Markdown")
 
 async def guruhlar_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
+    if not is_admin(update.effective_user.id): return
     if not any(logs.values()):
         await update.message.reply_text("📭 Hech qanday guruh yo'q."); return
     javob = "👥 *Guruhlar:*\n\n"
@@ -593,12 +603,12 @@ async def guruhlar_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(javob, parse_mode="Markdown")
 
 async def save_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
+    if not is_admin(update.effective_user.id): return
     save_all()
     await update.message.reply_text("💾 Saqlandi.")
 
 async def clear_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
+    if not is_admin(update.effective_user.id): return
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Ha, tozala", callback_data="clear:yes"),
         InlineKeyboardButton("❌ Bekor",      callback_data="clear:no"),
@@ -609,7 +619,7 @@ async def clear_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 # ─── Matnli xabar → custom sana kiritish ────────────────────────
 async def matn_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID: return
+    if not is_admin(update.effective_user.id): return
     pending = ctx.user_data.get("pending_date")
     if not pending: return
 
@@ -628,13 +638,13 @@ async def matn_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data.pop("pending_date")
 
     target = list(logs.keys()) if gid_val == "ALL" else [gid_val]
-    await send_excel(ctx, OWNER_ID, target, sana=matn)
+    await send_excel(ctx, update.effective_user.id, target, sana=matn)
 
 # ─── Callback ────────────────────────────────────────────────────
 async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-    if q.from_user.id != OWNER_ID:
+    if not is_admin(q.from_user.id):
         await q.answer("❌ Ruxsat yo'q", show_alert=True); return
 
     data = q.data
@@ -661,7 +671,7 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         target = list(logs.keys()) if gid_val == "ALL" else [gid_val]
         sana   = None if sana_val == "all" else sana_val
         await q.edit_message_text("⏳ Excel tayyorlanmoqda…")
-        await send_excel(ctx, OWNER_ID, target, sana=sana)
+        await send_excel(ctx, q.from_user.id, target, sana=sana)
 
     # Stats
     elif data.startswith("stats:"):
@@ -700,7 +710,7 @@ def main():
     ))
     # Owner — shaxsiy chat (custom sana kiritish)
     app.add_handler(MessageHandler(
-        filters.ChatType.PRIVATE & filters.TEXT & filters.User(OWNER_ID),
+        filters.ChatType.PRIVATE & filters.TEXT & filters.User(list(ADMIN_IDS)),
         matn_handler
     ))
     # Guruh xabarlari
