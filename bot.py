@@ -147,7 +147,7 @@ PANEL = ReplyKeyboardMarkup(
         [KeyboardButton("💾 Saqlash"),    KeyboardButton("🗑 Tozalash")],
     ],
     resize_keyboard=True,
-    persistent=True,
+    is_persistent=True,
 )
 
 # ═══════════════════════════════════════════════════════════════
