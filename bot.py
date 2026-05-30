@@ -32,6 +32,34 @@ MBRS_FILE = DATA_DIR / "members.json"
 logging.basicConfig(format="%(asctime)s | %(levelname)s | %(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
 
+# ── Uzun xabarlarni bo'lib yuborish (Telegram 4096 chegara) ──────────────────
+async def send_long(obj, text: str, parse_mode="Markdown",
+                    reply_markup=None, max_len: int = 3800):
+    """
+    Xabar 3800 belgidan uzun bo'lsa avtomatik bo'laklarga ajratadi.
+    obj — update.message  yoki  context.bot (chat_id kerak bo'ladi)
+    """
+    parts = []
+    while text:
+        if len(text) <= max_len:
+            parts.append(text)
+            break
+        # Oxirgi \n dan kesar
+        cut = text[:max_len].rfind("\n")
+        if cut < 1:
+            cut = max_len
+        parts.append(text[:cut])
+        text = text[cut:].lstrip("\n")
+
+    for i, part in enumerate(parts):
+        mkp = reply_markup if i == len(parts) - 1 else None
+        if hasattr(obj, "reply_text"):
+            await obj.reply_text(part, parse_mode=parse_mode, reply_markup=mkp)
+        else:
+            # obj = (bot, chat_id) tuple
+            await obj[0].send_message(obj[1], part,
+                                       parse_mode=parse_mode, reply_markup=mkp)
+
 # ═══════════════════════════════════════════════════════════════
 #  STORAGE
 # ═══════════════════════════════════════════════════════════════
@@ -533,8 +561,8 @@ async def panel_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📭 Ma'lumot yo'q.", reply_markup=PANEL)
             return
         if len(aktiv) == 1:
-            await update.message.reply_text(stats_text(aktiv[0]),
-                                             parse_mode="Markdown", reply_markup=PANEL)
+            await send_long(update.message, stats_text(aktiv[0]),
+                            reply_markup=PANEL)
             return
         rows = [[InlineKeyboardButton(f"📊 {logs[g][-1]['guruh'][:35]}",
                                        callback_data=f"stats:{g}")] for g in aktiv]
@@ -554,7 +582,7 @@ async def panel_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             javob += (f"🏷 *{nom}*\n"
                       f"  👥 {len(mbrs)} a'zo  ✅ {uids} faol  "
                       f"❌ {max(0, len(mbrs)-uids)} bildirmagan\n\n")
-        await update.message.reply_text(javob, parse_mode="Markdown", reply_markup=PANEL)
+        await send_long(update.message, javob, reply_markup=PANEL)
 
     elif matn == "🏘 Guruhlar":
         if not any(logs.values()):
@@ -570,7 +598,7 @@ async def panel_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                       f"  📨 {len(glog)} xabar  👥 {mbrs} a'zo  "
                       f"✅ {uids} faol\n"
                       f"  ID: `{gid}`\n\n")
-        await update.message.reply_text(javob, parse_mode="Markdown", reply_markup=PANEL)
+        await send_long(update.message, javob, reply_markup=PANEL)
 
     elif matn == "💾 Saqlash":
         save_all()
@@ -617,7 +645,12 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await send_excel(ctx, q.from_user.id, target, sana=sana)
 
     elif d.startswith("stats:"):
-        await q.edit_message_text(stats_text(d[6:]), parse_mode="Markdown")
+        txt = stats_text(d[6:])
+        if len(txt) <= 3800:
+            await q.edit_message_text(txt, parse_mode="Markdown")
+        else:
+            await q.edit_message_text("📊 Statistika yuborilmoqda...")
+            await send_long((ctx.bot, q.from_user.id), txt)
 
     elif d == "clear:yes":
         logs.clear(); members.clear(); save_all()
